@@ -6,37 +6,59 @@ def ensure_dir(f):
         os.makedirs(d)
 
 class root_style(object) :
-    def __init__(self) :
-        ROOT.gErrorIgnoreLevel = ROOT.kWarning
-        self.width = 1000
-        self.height = 1000
-        #ROOT.gROOT.SetBatch(1)
-        self.marg_top = 50.
-        self.marg_bot = 200.
-        self.marg_left = 200.
+    def __init__(self,batch=True) :
+        ROOT.gErrorIgnoreLevel = 3001
+        if batch:
+            ROOT.gROOT.SetBatch(1)
+        else:
+            ROOT.gROOT.SetBatch(0)
+        ROOT.gROOT.SetBatch(0)
+        size = 825
+        self.rel_marg_bot = .13
+        self.rel_marg_top = .05
+        self.rel_marg_left = .15
+        self.marg_top = round(size*.05)
+        self.marg_bot = round(size*.13)
+        self.marg_left = round(size*.150)
         self.marg_right = 0
         self.histo_height = 0
         self.histo_width = 0
-        self.output_dir = 'output'
-        self.prefix=''
-        self.postfix=''
+        self.width = 0
+        self.height = 0
         self.color_counter = 0
-        self.colors = [ROOT.kRed,ROOT.kBlue,ROOT.kGreen,ROOT.kMagenta+3,ROOT.kGreen+3]
-    @staticmethod
-    def SetBatchMode(batchmode):
-        ROOT.gROOT.SetBatch(batchmode)
+        self.colors = [ROOT.kRed, ROOT.kBlue, ROOT.kGreen, ROOT.kMagenta + 3, ROOT.kGreen + 3]
+        self.main_dir = './output/'
+        self.set_style(825,825,1)
+
+    def SetBatchMode(self,batch = True):
+        ROOT.gROOT.SetBatch(batch)
 
     def get_next_color(self):
-        index = self.color_counter%len(self.colors)
+        index = self.color_counter % len(self.colors)
         color = self.colors[index]
         self.color_counter += 1
         return color
 
 
-    def make_legend(self,X1,Y2, nentries):
+    def set_main_dir(self,d):
+        self.main_dir = d
+        print 'Main Dir: ',self.main_dir
+
+    def print_margins(self):
+        print 'root_style with canvas of size: {width} x{height} and margins {marg_left}, {marg_bot}, {marg_right}, {marg_top}'.format(
+            width = self.width,
+            height = self.height,
+            marg_left = self.marg_left,
+            marg_right = self.marg_right,
+            marg_top = self.marg_top,
+            marg_bot = self.marg_bot
+        )
+
+    def make_legend(self,X1,Y2, nentries,Y1=0):
         width = 0.3
         X2 = X1 + width
-        Y1 = Y2 - nentries *.25 * width
+        if Y1==0:
+            Y1 = Y2 - nentries *.25 * width
         # raw_input('nentries: %s'%nentries)
         l = ROOT.TLegend(X1,Y1,X2,Y2)
         l.SetLineWidth(2)
@@ -49,8 +71,28 @@ class root_style(object) :
         l.SetTextAlign(12)
         return l
 
+    def adjust_histo_style(self,histo):
+        histo.UseCurrentStyle()
+        self.adjust_axis_style(histo.GetXaxis())
+        self.adjust_axis_style(histo.GetYaxis())
+        histo.SetTitleFont(42)
+        try:
+             stats = histo.GetListOfFunctions().FindObject("stats")
+             stats.SetTextFont(42)
+        except:
+            pass
+    def adjust_axis_style(self,axis):
+        axis.SetTitleFont(42)
+        axis.SetLabelFont(42)
 
-    def set_style(self,width,height,ratio):
+    def adjust_canvas_margins(self,width,height):
+        self.marg_top = round(height * self.rel_marg_top)
+        self.marg_bot = round(height * self.rel_marg_bot)
+        self.marg_left = round(width * self.rel_marg_left)
+        self.marg_right = 0
+
+    def set_style(self,width,height,ratio,min_marg_right = True):
+        self.adjust_canvas_margins(width,height)
         self.width = width
         self.height = height
         ROOT.gStyle.SetPalette(53)
@@ -126,6 +168,8 @@ class root_style(object) :
         self.histo_height = height - self.marg_bot - self.marg_top
         self.histo_width = self.histo_height/ratio
         self.marg_right = width-self.marg_left - self.histo_width
+        if self.marg_right < min_marg_right:
+            self.marg_right=min_marg_right
         # print self.histo_width,self.histo_height
         # raw_input ('%s = %s + %s + %s'%(width, self.marg_left, self.histo_width, self.marg_right))
         ROOT.gStyle.SetPadTopMargin(self.marg_top/height);
@@ -157,15 +201,15 @@ class root_style(object) :
         ##g ROOT.gStyle.SetTitleXSize(Float_t size = 0.02); // Another way to set the size?
         ##g ROOT.gStyle.SetTitleYSize(Float_t size = 0.02);
         ROOT.gStyle.SetTitleXOffset(1.33);
-        ROOT.gStyle.SetTitleYOffset(1+.27*ratio);
-        ROOT.gStyle.SetTitleOffset(1.4, "Z"); ##g Another way to set the Offset
+        ROOT.gStyle.SetTitleYOffset(1.4+.27*ratio);
+        ROOT.gStyle.SetTitleOffset(1, "Z"); ##g Another way to set the Offset
 
         ##g For the axis labels:
 
         ROOT.gStyle.SetLabelColor(ROOT.kBlack, "XYZ");
         ROOT.gStyle.SetLabelFont(42, "XYZ");
         ROOT.gStyle.SetLabelOffset(0.010, "XYZ");
-        ROOT.gStyle.SetLabelOffset(0.1, "Z");
+        ROOT.gStyle.SetLabelOffset(0.01, "Z");
         ROOT.gStyle.SetLabelSize(0.04, "XYZ");
 
         ##g For the axis:
@@ -187,20 +231,103 @@ class root_style(object) :
         ##gLegend
         ROOT.gStyle.SetLegendFont(42);
 
+        #TextFonts
+        ROOT.gStyle.SetTextFont(42)
+        ROOT.gStyle.SetTextSize(0.04)
+
 
         ROOT.gStyle.cd();
 
-    def save_canvas(self,canvas,name):
-        canvas.Update()
-        fname = self.output_dir
-        fname +='/%s/'+self.prefix+name+self.postfix+'.%s'
-        ftypes = ['png','pdf','eps','root','tex']
-        for f in ftypes:
-            ensure_dir(fname%(f,f))
-            # print '  * Save ',fname%(f,f)
-            canvas.SaveAs(fname%(f,f))
+    def make_pad(self, which,option=''):
+        # which = 'plot' for plot pad above ratio, 'ratio' for ratio pad, 'tot' for pad without ratio
 
-    def get_canvas(self,name):
+        pad = ROOT.TPad('p', 'p', 0.0, 0.0, 1.0, 1.0, 0, 0)
+        if 'logx' in option.lower():
+            pad.SetLogx()
+
+        if which == 'plot':
+            # pad.SetPad(0.0, 0.3, 1.0, 1.0)
+            pad.SetPad(0.0, 0.0, 1.0, .87)
+            pad.SetBorderSize(0)
+            pad.SetBottomMargin(0.17)#0.47)
+            pad.SetLeftMargin(0.17)
+            pad.SetTopMargin(0.0)
+            pad.SetTicks(1,1)
+
+        if which == 'ratio':
+            # pad.SetPad(0.0, 0.0, 1.0, 0.3)
+            pad.SetPad(0.0, 0.88, 1.0, 1.0)
+            pad.SetBorderSize(0)
+            pad.SetBottomMargin(0.0)
+            pad.SetTopMargin(0.05)
+            pad.SetLeftMargin(0.17)
+            pad.SetTicks(1,1)
+            pad.SetFillStyle(0)
+        pad.Draw()
+        return pad
+
+
+    def get_canvas(self,name='c1'):
+        print self.width,self.height
         canvas = ROOT.TCanvas(name,'',self.width,self.height)
         canvas.UseCurrentStyle()
+        canvas.cd()
         return canvas
+
+    def save_canvas(self,canvas,name):
+
+        # canvas.
+        # canvas.UseCurrentStyle()
+        canvas.Update()
+
+        fname = self.main_dir
+        if not fname.endswith('/'):
+            fname+='/'
+        fname += '%s/'+name+'.%s'
+
+        ftypes = ['png','pdf','eps','root','tex']
+        print 'saving canvas', fname,'as',ftypes
+        for f in ftypes:
+            ensure_dir(fname%(f,f))
+            fn = fname%(f,f)
+            if f in ['eps','png']:
+                print fn
+            # print '\t%s'%(fn)
+            canvas.SaveAs(fn)
+
+    @staticmethod
+    def get_color(index):
+        colors = [ROOT.kRed,ROOT.kBlue,ROOT.kGreen, ROOT.kOrange, ROOT.kViolet,ROOT.kBlack,ROOT.kRed-2,ROOT.kBlue-6]
+        return colors[index%len(colors)]
+
+
+def create_histo(l, name, bins=0, low=0, up=0):
+    if bins ==0:
+        bins = 100
+        up = max(l)
+        low = min(l)
+    histo = ROOT.TH1F(name, name, bins, low, up)
+    for x in l:
+        histo.Fill(x)
+    return histo
+
+def create_stack(ll,name, bins=0, low=0, up=0):
+    if bins ==0:
+        bins = 100
+    if up <= low:
+        up = max(map(lambda x:max(x), ll))
+        low = min(map(lambda x:min(x), ll))
+    histos =[]
+    for l in ll:
+        index = ll.index(l)
+        h = create_histo(l,name+"_%d"%index,bins,low,up)
+        h.SetTitle('Plane %d'%index)
+        h.SetLineColor(style.get_color(index))
+        histos.append(h)
+    stack = ROOT.THStack(name,name)
+    for h in histos:
+        stack.Add(h)
+    return stack,histos
+
+
+

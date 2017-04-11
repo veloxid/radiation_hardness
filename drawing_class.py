@@ -9,14 +9,17 @@ import root_style
 import diamond_radiation
 
 class drawing_class:
-    def __init__(self,style,name=''):
+    def __init__(self,style,name='',config=None):
         self.style= style
+        style.set_style(825, 825, 1)
         self.canvas = style.get_canvas('Linerization'+name)
         self.offset_phi = 0
         self.prefix = self.style.prefix
         self.postfix = ""
         self.fitsDamageConstant = {}
         self.grsDamageConstant = {}
+        self.config=config
+
         # print 'PREFIX: ',self.prefix
         pass
 
@@ -45,6 +48,8 @@ class drawing_class:
                     g4 = errors['Gaus_mp_Up'] if errors.has_key('Gaus_mp_Up') else None
                     print h
                     h.Draw()
+                    self.canvas.Update()
+                    self.style.save_canvas(self.canvas, 'CCD_to_MFP_raw_' + h.GetName())
                     if cut1: cut1.Draw('same')
                     if cut2: cut2.Draw('same')
                     if g1: g1.Draw('same')
@@ -78,7 +83,19 @@ class drawing_class:
         self.canvas.SetTitle('MFP to CCD conversion')
         self.canvas.cd()
         try:
+            i = 0
             for d in diamonds:
+                if i == 0:
+                    d.ccd_eh_normalized.Draw()
+                    d.ccd_eh_normalized.GetXaxis().SetTitle('rel. MFP: #frac{MFP}{t}')
+                    d.ccd_eh_normalized.GetYaxis().SetTitle('rel. CCD: #frac{CCD}{t}')
+                    d.ccd_eh_normalized.GetHistogram().GetXaxis().SetTitle('rel. MFP: #frac{MFP}{t}')
+                    d.ccd_eh_normalized.GetHistogram().GetYaxis().SetTitle('rel. CCD: #frac{CCD}{t}')
+                    d.ccd_eh_normalized.GetHistogram().GetXaxis().SetRangeUser(0,6)
+                    d.ccd_eh_normalized.GetHistogram().GetYaxis().SetRangeUser(0, 1.05)
+                    self.style.save_canvas(self.canvas, 'MFP_to_CCD_normalized')
+                    i+=1
+                    raw_input()
                 print 'Draw_MFP_to_CCD_functions',d.name
                 d.set_all_ratios()
                 name = d.name.replace(' ','_')
@@ -90,12 +107,14 @@ class drawing_class:
                 cut.SetLineStyle(2)
                 cut.SetLineColor(ROOT.kRed)
                 d.ccd_eh.Draw()
+                d.ccd_eh.GetHistogram().SetTitleOffset(1.9)
                 d.ccd_eh.GetHistogram().SetMaximum(d.thickness*1.1)
                 d.ccd_eh.GetHistogram().GetXaxis().SetTitle('MFP / #mum')
                 d.ccd_eh.GetHistogram().GetYaxis().SetTitle('CCD / #mum')
                 d.ccd_eh_low.Draw('same')
                 d.ccd_eh_up.Draw('same')
                 cut.Draw('Same')
+                self.style.save_canvas(self.canvas, 'MFP_to_CCD_raw_' + name)
                 g.Draw('PE')
                 self.canvas.Update()
                 self.style.save_canvas(self.canvas,'MFP_to_CCD_'+name)
@@ -136,6 +155,7 @@ class drawing_class:
         y_min = 0
 
         ROOT.gStyle.SetOptFit(0)
+        markers = [20,21,22,23,34,29]
         for dia in diamonds:
             self.style.prefix = self.prefix+dia.name+"/"
             # dia.gr.SetLineColor(i+1)
@@ -150,10 +170,14 @@ class drawing_class:
             y_min = min(d.get_min_inv_mfp(),y_min)
             y_max = max(d.get_max_inv_mfp(),y_max)
         i = 0
-        frame = self.canvas.DrawFrame(x_min-.05*(x_max-x_min),
-                     y_min-.05*(y_max-y_min),
-                     x_max+.05*(x_max-x_min),
-                     y_max-.05*(y_max-y_min),
+        xx_min = x_min-.05*(x_max-x_min)
+        yy_min=y_min-.05*(y_max-y_min)
+        xx_max = x_max+.05*(x_max-x_min)
+        yy_max =y_max-.05*(y_max-y_min)
+        frame = self.canvas.DrawFrame(xx_min,
+                     yy_min,
+                     xx_max,
+                     yy_max,
                      '%s;Fluence #times 10^{-15} / #mum^{-1}cm^{-2};1/MFP   /  1/#mum'% title)
         frame.GetYaxis().SetTitleOffset(1.9)
         self.canvas.SetTitle('Linerization')
@@ -161,8 +185,8 @@ class drawing_class:
         ROOT.gStyle.SetOptFit(0)
         for dia in diamonds:
             # dia.gr.SetLineColor(i+1)
+            dia.gr.SetMarkerStyle(markers[i%len(markers)])
             dia.gr.Draw('P')
-
             i+=1
             self.canvas.Update()
             # print '%10s:'%dia.name,'%5.5f +/- %5.5f'%(dia.fit_val[1][0],dia.fit_val[1][1])
@@ -176,21 +200,62 @@ class drawing_class:
 
     def DrawAllDamageConstantFit(self,diamonds,title):
         types = set([dia.type for dia in diamonds])
+        results = {}
         for t in types:
             dias = filter(lambda x:x.type == t,diamonds)
-            self.DrawDamageConstantFit(dias,title,type = t)
-        self.DrawDamageConstantFit(diamonds,title,type = 'all')
-        # raw_input()
+            results[t] =  self.DrawDamageConstantFit(dias,title,t = t),dias
+        dias = {}
+        dias2 = {}
+        print 'Fit results: '
+        for r in results:
+            n_dias = len(dias)
+            name = r.title()
+            if n_dias > 1:
+                name+='s'
+            data = [r,  {'name':r.title()+'s',
+                         'type':r,
+                         'thickness':'500',
+                         'fluence':'[]',
+                         'fluence_err':'[]','ccd':'[]','ccd_err':'[]'}]
+            d = diamond_radiation.diamond_radiation(data,self.config)
+            d.fit_val =((0,0),
+                        (results[r][0][0]/1e3,results[r][0][1]/1e3),
+                      (0,0))
+            dias[r] = d
+
+            if n_dias > 1:
+                dias2[r] = d
+                d.title = 'All {}'.format(name)
+        self.DrawDamageConstantFit(dias.values(),title,t = 'all_divided')
+        results['all'] = self.DrawDamageConstantFit(diamonds,title,t = 'all'),diamonds
+        print 'Fit Results:'
+        for r in results:
+            print '\t {name}: {p0[0]:.3f} +/- {p0[1]:.3f}'.format(name=r,
+                                                         p0 = results[r][0])
+
+        for d in dias.values():
+            d.ignore = True
+        diamonds = dias.values() + diamonds
+        self.DrawDamageConstantFit(diamonds,title,t = 'all_inc')
         return
 
-    def DrawDamageConstantFit(self,dias,title, type = 'all'):
-        print 'Draw Damage Constant Fit',type, 'for ',[d.name for d in dias]
+    def DrawDamageConstantFit(self,dias,title, t = 'all',plot = True):
+        if not plot:
+            ROOT.gROOT.SetBatch(True)
+        print 'Draw Damage Constant Fit',t, 'for ',[d.name for d in dias]
         constant = []
         constant_err = []
-        self.canvas.Clear()
-        self.canvas.Update()
-        self.canvas.SetTitle('Damage Constant Fit')
+        constant_all = []
+        constant_err_all = []
+        c1 = self.style.get_canvas('cDamageConstantFit_{0}'.format(t))
+        c1.SetTitle('Damage Constant Fit')
+        has_ignore = sum([dia.ignore for dia in dias])
+        bPrint = False
         for dia in dias:
+            constant_all.append(dia.fit_val[1][0]*1e-15/1e-18)
+            constant_err_all.append(dia.fit_val[1][1]*1e-15/1e-18)
+            if dia.ignore:
+                continue
             constant.append(dia.fit_val[1][0]*1e-15/1e-18)
             constant_err.append(dia.fit_val[1][1]*1e-15/1e-18)
 
@@ -201,47 +266,77 @@ class drawing_class:
         # print 'constants', len(constant)
         gr = ROOT.TGraphErrors(len(x),np.array(x),np.array(constant),np.array(ex),
                             np.array(constant_err))
-        gr.SetName('gDamageConstantFit_{0}'.format(type))
+
+        gr.SetName('gDamageConstantFit_{0}'.format(t))
+        gr.SetTitle('Damage Constant of %s;;k_{mfp} #times 10^{-18} / #mum^{-1}cm^{-2}'%title)
+        fit = ROOT.TF1('fit_{0}'.format(t),'pol0',min(x),max(x))
+
+        if not plot:
+            s = gr.Fit(fit,'Q0S','goff')
+        else:
+            gr.Draw('AP')
+            gr.GetYaxis().SetTitleOffset(1.9)
+            s = gr.Fit(fit,'SQ')
+
+        if bPrint:
+            print 'x, constants: ',x, constant
+            print s.Parameter(0),s.ParError(0)
+            raw_input('keypress')
+        if not plot:
+             return s.Parameter(0),s.ParError(0)
+        hint = gr.Clone()
+        ROOT.TVirtualFitter.GetFitter().GetConfidenceIntervals(hint)
+        hint = copy.deepcopy(hint)
+        fit.SetRange(fit.GetXmin()+has_ignore-.5,fit.GetXmax()+has_ignore+.5)
+        fit2 = fit.Clone()
+        fit2.SetRange(-.5,fit.GetXmax()+has_ignore+.5)
+        fit2.SetLineStyle(2)
+
+        x = range(len(constant_all))
+        x = [float(i+1) for i in x]
+        ex = [1e-5 for i in x]
+        gr = ROOT.TGraphErrors(len(x),np.array(x),np.array(constant_all),np.array(ex),
+                            np.array(constant_err_all))
+        gr.SetName('gDamageConstantFit_{0}'.format(t))
         gr.SetTitle('Damage Constant of %s;;k_{mfp} #times 10^{-18} / #mum^{-1}cm^{-2}'%title)
         gr.Draw('AP')
         gr.GetYaxis().SetTitleOffset(1.9)
-        fit = ROOT.TF1('fit_{0}'.format(type),'pol0',min(x),max(x))
-        gr.Fit(fit,'Q')
+        gr.GetListOfFunctions().Add(fit)
+        gr.GetListOfFunctions().Add(fit2)
+
+
         # print gr.GetN()
-        hint = gr.Clone()
-        ROOT.TVirtualFitter.GetFitter().GetConfidenceIntervals(hint)
-        if type == 'all':
+        if t == 'all':
             self.fitDamageConstant = fit
             self.grDamageConstant  = gr
 
-        self.fitsDamageConstant[type] = fit
-        self.grsDamageConstant[type]  = gr
+        self.fitsDamageConstant[t] = fit
+        self.grsDamageConstant[t]  = gr
         # hint.SetStats(False)
         hint.SetFillColor(18)
         hint.SetFillStyle(3144)
-        print 'Draw',gr.GetName(),'with',gr.GetN()
         gr.Draw('APL')
         gr.Draw('AP')
-        hint.Draw("e3 same")
+        if t == 'all':
+            hint.Draw("e3 same")
         gr.Draw('PE')
-        self.canvas.Update()
+        c1.cd()
         xax = gr.GetXaxis()
-        print 'x: ',xax.GetXmin(),xax.GetXmax(),xax.GetNbins()
         for i in range(len(dias)):
             bin_index = xax.FindBin(i+1)
             xax.SetBinLabel(bin_index,dias[i].title)
-            print i,bin_index,xax.GetBinCenter(bin_index),dias[i].title, gr.GetX()[i],gr.GetY()[i]
+            # print ' *',i,dias[i].title,x[i],ex[i],constant[i],constant_err[i]
         ROOT.gPad.Modified()
         ROOT.gPad.Update()
         gr.Draw('APL')
         gr.Draw('AP')
-        hint.Draw("e3 same")
+
+        if t == 'all':
+            hint.Draw("e3 same")
         gr.Draw('PE')
-        self.canvas.Update()
-        save_as = 'DamageConstantFit_{type}'.format(type=type)
-        print 'save_as',save_as
-        self.style.save_canvas(self.canvas,save_as)
-        raw_input()
+        c1.cd()
+        save_as = 'DamageConstantFit_{type}'.format(type=t)
+        self.style.save_canvas(c1,save_as)
         return fit.GetParameter(0),fit.GetParError(0)
 
     @staticmethod
@@ -301,7 +396,7 @@ class drawing_class:
         return self.fitDamageConstant.GetParameter(0)/1e3, self.fitDamageConstant.GetParError(0)/1e3
 
     def ExtractFluenceOffset(self,singles,polys):
-        print 'ExtractFluenceOffset'
+        # print 'ExtractFluenceOffset'
         c_singles = [x.fit_val[0] for x in singles]
         c_polys = [x.fit_val[0] for x in polys]
         # c_polys_err = [x.fit_err[0] for x in polys]
@@ -327,13 +422,15 @@ class drawing_class:
         if verb: raw_input()
         self.offset_phi = offset_phi
         self.offset_err = offset_err
-        print offset_err,offset_phi
+        # print offset_err,offset_phi
         return offset_phi,c_single
 
     def get_shift(self):
         return self.offset_phi
 
-    def DrawDamageCurve(self,diamonds,title):
+    def DrawDamageCurve(self,diamonds,title,plot=True):
+        if not plot:
+            ROOT.SetBatch(True)
         print 'DrawDamageCurve'
 
         singles,polys = self.GetSortedDiamonds(diamonds)
@@ -347,6 +444,7 @@ class drawing_class:
         self.canvas.SetTitle('Damage Curve')
         self.canvas.cd()
         self.canvas = self.style.get_canvas('Damage Curve')
+        print 'Table:'
         for dia in diamonds:
             dia.print_fit_results()
             vx = dia.fluence_val
@@ -372,7 +470,7 @@ class drawing_class:
             x_min = min(x_min,min(vx))
             y_max = max(y_max,max(vy))#gr.GetHistogram().GetMaximum())
             y_min = min(y_min,min(vy))
-        print 'Result &  -- & {p0:.2f} \pm {e0:.2f} \\\\'.format(
+        print '\tResult &  -- & {p0:.2f} \pm {e0:.2f} \\\\'.format(
             p0 = self.fitDamageConstant.GetParameter(0),
             e0 = self.fitDamageConstant.GetParError(0)
         )
@@ -385,7 +483,7 @@ class drawing_class:
         self.canvas.cd()
 
         damage_constant, damage_constant_err = self.get_damage_constant()
-        print  damage_constant, damage_constant_err
+        # print  damage_constant, damage_constant_err
         # damage_constant_err = self.fitDamageConstant.GetParError(0)*2/1e3
         self.fit = ROOT.TF1('damge_curve',"[0]/(1+[1]*[0]*x)",0,20)
         self.fit.SetParName(0,'#lambda_0')
@@ -396,20 +494,25 @@ class drawing_class:
         self.fit.SetNpx(1000)
         self.fit.SetParameter(0,constant[0])
         self.fit_high = self.fit.Clone('fit_high')
-        self.fit_high.FixParameter(1,damage_constant+damage_constant_err)
+        self.fit_high.SetTitle('Fit + 1 sigma')
+        k_high = damage_constant+damage_constant_err
+        self.fit_high.FixParameter(1,k_high)
         self.fit_high.SetLineStyle(3)
         self.fit_low = self.fit.Clone('fit_low')
-        self.fit_low.FixParameter(1,damage_constant-damage_constant_err)
+        self.fit_low.SetTitle('Fit - 1 sigma')
+        k_low = damage_constant-damage_constant_err
+        print 'Damage constants: {0:.2f}  {1:.2f} {2:.2f}'.format(k_low*1e3,damage_constant*1e3,k_high*1e3)
+        self.fit_low.FixParameter(1,k_low)
         self.fit_low.SetLineStyle(3)
         self.fit.SetParameter(0,constant[0])
         # print constant[0],1/constant[0]
         self.fit.SetParError(0,constant[1])
-        print "FIT:"
-        for i in range(2):
-            print '\t* ',i,'%5.2e +/- %5.2e'%(self.fit.GetParameter(i),self.fit.GetParError(i))
+        # print "FIT:"
+        # for i in range(2):
+        #     print '\t* ',i,'%5.2e +/- %5.2e'%(self.fit.GetParameter(i),self.fit.GetParError(i))
         self.cut = ROOT.TCutG('Shift',2)
         self.cut.SetName('Shift')
-        self.cut.SetTitle('Shift: %.1f#times 10^{15} cm^{-2}'%(offset_phi))
+        self.cut.SetTitle('Shift: %.1f#times 10^{15} cm^{-2}'%(round(offset_phi,1)))
         self.cut.SetLineColor(ROOT.kRed)
         self.cut.SetLineStyle(2)
         self.cut.SetPoint(0,offset_phi,-1e10)
@@ -421,15 +524,17 @@ class drawing_class:
         self.canvas.Update()
         frame.GetYaxis().SetTitleOffset(1.9)
 
-        print 'fitting:'
+        # print 'fitting:'
         for gr in self.graphs:
-            print gr.GetName(),gr.GetTitle()
+            # print gr.GetName(),gr.GetTitle()
             frame.Draw()
             gr.Fit(self.fit,'QN')
-            print '  fitted: ','%10s'%gr.GetName(),self.fit.GetParameter(0)
+            # print '  fitted: ','%10s'%gr.GetName(),self.fit.GetParameter(0)
             gr.Draw('P')
             self.fit.Draw('same 4')
             self.fit.Draw('SAME')
+            self.fit_low.SetParameter(0,self.fit.GetParameter(0))
+            self.fit_high.SetParameter(0,self.fit.GetParameter(0))
             self.fit_high.Draw('SAME')
             self.fit_low.Draw('SAME')
             self.canvas.Update()
@@ -438,7 +543,7 @@ class drawing_class:
                 dia_name = dia.name
                 self.style.prefix = self.prefix+dia_name+'/'
                 title = 'DamageCurve_'+dia_name
-                print 'save',title
+                # print 'save',title
                 self.style.save_canvas(self.canvas,title)
                 self.canvas.SetLogy()
                 self.canvas.Update()
@@ -446,12 +551,35 @@ class drawing_class:
                 self.canvas.SetLogy(False)
             except Exception as e:
                 print 'Exception:',e
+
+        vx = []
+        vy = []
+        exl = []
+        exh = []
+        eyl = []
+        eyh = []
+        for gr in self.graphs:
+            vx.append([gr.GetX()[i] for i in range(gr.GetN())])
+            vy.append([gr.GetY()[i] for i in range(gr.GetN())])
+            exl.append([gr.GetEXlow()[i] for i in range(gr.GetN())])
+            exh.append([gr.GetEXhigh()[i] for i in range(gr.GetN())])
+            eyl.append([gr.GetEYlow()[i] for i in range(gr.GetN())])
+            eyh.append([gr.GetEYhigh()[i] for i in range(gr.GetN())])
+        gr = ROOT.TGraphAsymmErrors(len(vx),
+                                    np.array(vx),np.array(vy),
+                                    np.array(ex),np.array(ex),
+                                     np.array(eyl),np.array(eyh))
+        gr.SetName('gDamageCurve_all')
+        gr.Fit(self.fit,'')
+
         self.style.prefix = self.prefix
         frame.Draw()
         for gr in self.graphs:
             # gr.Fit(self.fit,'QN')
             print '  fitted: ','%10s'%gr.GetName(),self.fit.GetParameter(0)
             gr.Draw('P')
+        self.fit_low.SetParameter(0,self.fit.GetParameter(0))
+        self.fit_high.SetParameter(0,self.fit.GetParameter(0))
         self.fit.Draw('same 4')
         self.fit.Draw('SAME')
         self.fit_high.Draw('SAME')
@@ -464,12 +592,41 @@ class drawing_class:
             if d.type != 'single':
                 t += ' shifted'
             self.leg.AddEntry(d.gr,t)
+        for f in [self.fit,self.fit_low,self.fit_high]:
+            print f.GetName(),f.GetParameter(1)*1e3
+
         self.leg.AddEntry(self.fit,'Fit','L')
-        self.leg.AddEntry(None,'k_{mfp}: %2.2e #mum^{-1} cm^{-2}'%(damage_constant/1e15),'')
+        k = round(self.get_damage_constant()[0]*1e3,2)
+        self.leg.AddEntry(None,'k_{mfp}: %2.2f #upoint 10^{-18} #mum^{-1} cm^{-2}'%(k),'')
         self.leg.Draw()
         self.canvas.Update()
         self.style.save_canvas(self.canvas,'DamageCurve')
         self.canvas.SetLogy()
+
+        frame.GetYaxis().SetRangeUser(y_min,(y_max+dy)*10)
         self.canvas.Update()
         self.style.save_canvas(self.canvas,'DamageCurveLog')
         print
+
+    def draw_ratio_variation(self,ratio_variation):
+        self.canvas.SetName('cRatioVariation')
+        ratios = sorted(ratio_variation.items())
+        x=np.array([xx[0] for xx in ratios])
+        y=np.array([xx[1][0] for xx in ratios])
+        ex =np.array( [.01 for i in range(len(ratios))])
+        ey = np.array([xx[1][1] for xx in ratios])
+        n = len(ratios)
+        print 'n',n
+        print 'x',x,len(x)
+        print 'y', y, len(y)
+        print 'ex',ex,len(ex)
+        print 'ey',ey,len(ey)
+        self.canvas.cd()
+        c = self.style.get_canvas('ratioVariation')
+        c.cd()
+        gr = ROOT.TGraphErrors(n,x,y,ex,ey)
+        gr.SetName('gRatioVariation')
+        gr.Draw('APL')
+        gr.GetXaxis().SetTitle('Ratio #lambda_{h}/#lambda_{e}')
+        gr.GetYaxis().SetTitle('DamageConstant')
+        self.style.save_canvas(c,'RatioVariation')

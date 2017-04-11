@@ -48,23 +48,34 @@ class diamond_radiation:
         self.ccd_val_orig = self.ccd_val
         self.ccd_val = map(lambda x: min(x,self.thickness*max_rel_thickness),self.ccd_val)
         self.ccd_err = json_convert(data[1]['ccd_err'])
+        calib_spread = False
         if config.has_option('Main','calib_spread'):
             calib_spread = self.config.getboolean('Main','calib_spread')
-        else:
-            calib_spread = False
-        if 'calib_spread' in data[1]:
-            self.ccd_calib_spread =  str(data[1]['calib_spread']).replace(' ','')
-            self.ccd_calib_spread =json.loads( self.ccd_calib_spread)
-        else:
-            self.ccd_calib_spread = [0.]*len(self.ccd_err)
-        if calib_spread:
-            self.ccd_err_orig = self.ccd_err
-            self.ccd_err = map(lambda x,y:math.sqrt(x**2+y**2),self.ccd_err_orig,self.ccd_calib_spread)
+        slope_err = False
+        if config.has_option('Main','slope_err'):
+            slope_err = self.config.getboolean('Main','slope_err')
 
+        self.ccd_calib_spread = [0.] * len(self.ccd_err)
+        if 'calib_spread' in data[1]:
+            self.ccd_calib_spread = str(data[1]['calib_spread']).replace(' ', '')
+            self.ccd_calib_spread = json.loads(self.ccd_calib_spread)
+
+        self.ccd_slope_err = [0.] * len(self.ccd_err)
+        if 'slope_err' in data[1]:
+            self.ccd_slope_err = str(data[1]['slope_err']).replace(' ', '')
+            self.ccd_slope_err = json.loads(self.ccd_slope_err)
+            # raw_input( self.ccd_slope_err)
+
+        if slope_err or calib_spread:
+            self.ccd_err_orig = self.ccd_err
+            self.ccd_err = map(lambda x,y,z:math.sqrt(x**2+y**2+z**2),
+                               self.ccd_err_orig,
+                               self.ccd_calib_spread,
+                               self.ccd_slope_err)
+        self.ignore = False
         self.color = color
 
     def analyse(self):
-        self.calculate_mfps()
         self.calculate_damage_constant()
         self.Print()
 
@@ -85,6 +96,7 @@ class diamond_radiation:
         # Electrons + Holes
         func_string = func_string1 +"+" +func_string2
         func_string = "[0]*(%s)"%func_string
+        func_string += ';MFP / #mum;CCD / #mum'
         self.ccd_eh = ROOT.TF1("f_mfp_to_ccd_2",func_string,0,xmax)
         self.ccd_eh.SetParName(0,"Thickness")
         self.ccd_eh.SetParName(1,"#lambda_h/#lambda_e")
@@ -94,6 +106,11 @@ class diamond_radiation:
         self.set_mfp_ratio(1,thickness=1)
         self.ccd_eh_up.SetLineStyle(2)
         self.ccd_eh_low.SetLineStyle(2)
+        self.ccd_eh_normalized = self.ccd_eh.Clone('ccd_eh_normalized')
+        self.ccd_eh_normalized.SetRange(0,40)
+        self.ccd_eh_normalized.SetParameter(0, 1)
+        self.ccd_eh_normalized.SetParameter(1, 1.47)
+        self.ccd_eh_normalized.SetNpx(10000)
         # self.check_functions()
         #
         # self.set_mfp_ratio(2)
@@ -103,15 +120,17 @@ class diamond_radiation:
     def set_all_ratios(self):
         ratio_str = '#frac{#lambda_h}{#lambda_e} = {%f}'
         self.set_mfp_ratio(self.default_mfp_ratio)
-        self.ccd_eh.SetTitle(ratio_str%(self.default_mfp_ratio))
+        # self.ccd_eh.SetTitle()
+        # ratio_str%(self.default_mfp_ratio))
         low =min(self.mfp_ratios)
         self.ccd_eh_low.SetParameter(1,low)
-        self.ccd_eh_low.SetTitle(ratio_str%(low))
+        # self.ccd_eh_low.SetTitle(ratio_str%(low))
         up = max(self.mfp_ratios)
         self.ccd_eh_up.SetParameter(1,up)
-        self.ccd_eh_low.SetTitle(ratio_str%(up))
+        # self.ccd_eh_low.SetTitle(ratio_str%(up))
         self.ccd_eh_up.SetParameter(0,self.thickness)
         self.ccd_eh_low.SetParameter(0,self.thickness)
+
 
     def set_mfp_ratio(self,ratio=1.,thickness = -1):
         self.mfp_ratio = ratio
@@ -130,12 +149,14 @@ class diamond_radiation:
 
     def Print(self):
         print 'Diamond %s with a thickness of %5.1f mum:'%(self.name,self.thickness)
-        print 'fluence | CCD [mum] | MFP [mum]'
-        print '--------+-----------+----------'
+        print 'fluence | CCD [mum] | CCD [mum] | MFP [mum] |'
+        print '--------+-----------+-----------+-----------+'
         for i in range(len(self.fluence_val)):
-            print '%7.1f | %9.1f | %9.1f'%(self.fluence_val[i],
+            print '%7.1f | %9.1f | %9.1f |  %9.1f |  %9.1f |  %9.1f'%(self.fluence_val[i],
+                                          self.ccd_val_orig[i],
                                           self.ccd_val[i],
-                                          self.mfps[i])
+                                          self.mfps[i],
+                                                                      self.mfp_merr[i],self.mfp_perr[i])
         print
 
     def GetName(self):
@@ -374,18 +395,21 @@ class diamond_radiation:
         self.ccd_eh.SetNpx(100000)
 
         self.set_thickness()
-        self.ccd_eh.SetTitle('mfp to CCD for %s, #lambda_h/#lambda_e = %.1f;mfp[#mum];ccd[#mum]'%(self.name,self.mfp_ratio))
+        title =self.ccd_eh.GetTitle()
+        # self.ccd_eh.SetTitle('%s;mfp[#mum];ccd[#mum]'%(title))
         self.set_mfp_ratio(self.default_mfp_ratio)
         self.mfps = [self.ccd_eh.GetX(ccd) for ccd in self.ccd_val]
         self.set_mfp_ratio(2)
         self.mfps_up = [self.ccd_eh.GetX(ccd) for ccd in self.ccd_val]
         self.set_mfp_ratio(1)
         self.mfps_low = [self.ccd_eh.GetX(ccd) for ccd in self.ccd_val]
+
         for i in range(len(self.ccd_val)):
             ratio_low = (self.mfps[i]- self.mfps_low[i])/self.mfps[i]*100.
             ratio_up  = (self.mfps[i]- self.mfps_up[i] )/self.mfps[i]*100.
             # print '%8.2f: %8.2f, %8.2f, %8.2f'%(self.ccd_val_orig[i],self.mfps[i], ratio_low,ratio_up)
-
+        if self.default_mfp_ratio == 1:
+            print ratio_low, ratio_up
         self.inv_mfps = [1/x for x in self.mfps]
         self.mfp_convs =[]
         for ccd, ccd_err in zip(self.ccd_val, self.ccd_err):
@@ -473,6 +497,9 @@ class diamond_radiation:
                   (self.fit.GetParameter(1),self.fit.GetParError(1)),
                   (self.fit.GetChisquare(),self.fit.GetNDF()))
         self.fit_val = retVal
+        if self.default_mfp_ratio == 1:
+            # print retVal
+            pass
         return retVal
         #calculate
         pass
